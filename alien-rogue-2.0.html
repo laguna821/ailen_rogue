@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
+<title>Alien Rogue — Mobile HTML Roguelike</title>
+<style>
+  /* =============================================================
+     Alien Rogue — 단일 HTML 턴제 로그라이크 (모바일 최적화)
+     v1.0.7 — 터치 이벤트 수정, 전투 로그 시스템, 타겟팅 시스템 추가
+     ============================================================= */
+  :root{
+    --bg:#0b0f14; --fg:#e6f1ff; --muted:#8aa2c0; --accent:#64d2ff; --accent2:#a0ff87;
+    --danger:#ff6b6b; --ok:#4de0a4; --panel:#0e141d; --panel2:#111926;
+    --hp:#ff7b7b; --ap:#ffd166; --ammo:#8be9fd; --buff:#c3f584; --debuff:#ffadad;
+    --btn:#0f1a28; --btnActive:#1a2a3f;
+  }
+  [data-contrast="high"]{ --fg:#ffffff; --muted:#d2e1ff; --panel:#0b0f14; --panel2:#0b0f14; }
+  [data-fontscale="large"]{ font-size:18px; }
+  html,body{ height:100%; margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,Apple SD Gothic Neo,Noto Sans KR,Malgun Gothic,sans-serif; 
+    overflow:hidden; position:fixed; width:100%; }
+  #wrap{ position:fixed; inset:0; display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+  header{ padding:8px env(safe-area-inset-right) 4px env(safe-area-inset-left);
+    display:flex; align-items:center; justify-content:space-between;
+    background:linear-gradient(180deg, rgba(100,210,255,0.08), transparent);
+    border-bottom:1px solid #0d1522; z-index:5; flex-shrink:0; }
+  header .title{ font-weight:700; letter-spacing:.5px; font-size:14px; }
+  header .badges{ display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  .badge{ padding:3px 6px; border:1px solid var(--panel2); border-radius:999px; background:rgba(255,255,255,.03); font-size:10px; }
+  .badge.locked{ opacity:.5; text-decoration:line-through; }
+
+  #gameArea{ position:relative; flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; }
+  #canvasWrap{ position:relative; flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; min-height:0; }
+  canvas{ position:absolute; z-index:0; background:#0f1622; width:100%; height:100%; touch-action:none; object-fit:contain; }
+
+  /* HUD */
+  #hud{ position:absolute; left:0; right:0; top:4px; display:flex; gap:4px; padding:0 4px;
+        pointer-events:none; z-index:10; flex-wrap:wrap; }
+  .hudCard{ pointer-events:auto; background:rgba(15,26,40,.85); border:1px solid rgba(100,210,255,.15);
+            border-radius:8px; padding:4px 6px; box-shadow:0 4px 8px rgba(0,0,0,.2); backdrop-filter: blur(4px); }
+  .row{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .stat{ display:flex; align-items:center; gap:4px; font-size:11px; }
+  .dot{ width:6px; height:6px; border-radius:50%; background:var(--muted); }
+  .hp .dot{ background:var(--hp);} .ap .dot{ background:var(--ap);} .ammo .dot{ background:var(--ammo);} .buff .dot{ background:var(--buff);} .debuff .dot{ background:var(--debuff);}
+  .mini{ font-size:10px; color:var(--muted); }
+
+  /* Compact Combat Log */
+  #combatLogWrapper{ position:absolute; left:0; right:0; top:32px; padding:0 4px; z-index:11; pointer-events:none; }
+  #combatLogBar{ background:rgba(15,26,40,.85); border:1px solid rgba(100,210,255,.15);
+                 border-radius:8px; padding:4px 8px; font-size:11px; backdrop-filter: blur(4px);
+                 display:flex; align-items:center; justify-content:space-between; pointer-events:auto; }
+  #combatLogBar .logText{ flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #combatLogBar .toggleBtn{ padding:2px 6px; background:rgba(100,210,255,.1); border:1px solid rgba(100,210,255,.3);
+                           border-radius:4px; font-size:10px; cursor:pointer; margin-left:8px; }
+  #combatLogFull{ display:none; background:rgba(15,26,40,.92); border:1px solid rgba(100,210,255,.2);
+                  border-radius:8px; padding:8px; margin-top:4px; max-height:120px; overflow-y:auto;
+                  backdrop-filter: blur(6px); pointer-events:auto; }
+  #combatLogFull.show{ display:block; }
+  #combatLogFull .entry{ margin:2px 0; padding:2px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:10px; }
+  #combatLogFull .entry:last-child{ border-bottom:none; }
+  .damage{ color:var(--danger); }
+  .heal{ color:var(--ok); }
+  .miss{ color:var(--muted); }
+  .kill{ color:var(--accent2); font-weight:600; }
+
+  /* Targeting Info */
+  #targetInfo{ position:absolute; left:50%; transform:translateX(-50%); bottom:100px;
+               background:rgba(15,26,40,.95); border:1px solid var(--accent); border-radius:12px;
+               padding:10px 16px; display:none; z-index:15; backdrop-filter: blur(6px); }
+  #targetInfo.show{ display:block; }
+  #targetInfo .targetRow{ display:flex; gap:12px; align-items:center; margin:4px 0; }
+  #targetInfo .label{ color:var(--muted); font-size:11px; }
+  #targetInfo .value{ color:var(--accent); font-weight:600; }
+  #targetInfo .buttons{ display:flex; gap:8px; margin-top:8px; }
+  #targetInfo button{ padding:6px 12px; background:var(--btn); border:1px solid var(--accent);
+                      border-radius:8px; color:var(--fg); font-size:12px; cursor:pointer; }
+  #targetInfo button:disabled{ opacity:0.4; cursor:not-allowed; }
+
+  /* Touch Controls - Moved to game area */
+  #controls{ position:absolute; bottom:0; left:0; right:0; display:grid; grid-template-columns:repeat(5,1fr); gap:6px; padding:6px;
+             background:rgba(15,26,40,.9); border-top:1px solid rgba(100,210,255,.2); z-index:5; }
+  .btn{ -webkit-tap-highlight-color: transparent; user-select:none; touch-action:manipulation;
+        background:var(--btn); border:1px solid rgba(255,255,255,.07); border-radius:10px;
+        padding:8px 4px; text-align:center; font-weight:600; font-size:11px; 
+        box-shadow:inset 0 -2px 0 rgba(255,255,255,.03); }
+  .btn:active{ background:var(--btnActive); transform:translateY(1px); }
+  .btn[disabled]{ opacity:.4; filter:saturate(.6); }
+  .btn.active{ background:var(--accent); color:#000; }
+
+  /* Panels */
+  .overlay{ position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+            background:rgba(5,8,12,.6); backdrop-filter: blur(6px); z-index:30; }
+  .overlay.show{ display:flex; }
+  .panel{ width:min(720px, 92vw); max-height:82vh; overflow:auto; background:var(--panel);
+          border:1px solid var(--panel2); border-radius:16px; padding:16px;
+          box-shadow:0 10px 24px rgba(0,0,0,.45); }
+  .panel h2{ margin:.2em 0 .6em; font-size:20px; }
+  .panel .muted{ color:var(--muted); font-size:14px; }
+  .panel .grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .kv{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:#0c1320; border:1px solid #142033; border-radius:12px; padding:10px; }
+  .kv strong{ color:var(--accent); }
+
+  /* Player Menu */
+  #playerMenu{ position:absolute; left:50%; transform:translateX(-50%); bottom:100px;
+               background:rgba(15,26,40,.95); border:1px solid var(--accent); border-radius:12px;
+               padding:10px 16px; display:none; z-index:15; backdrop-filter: blur(6px); }
+  #playerMenu.show{ display:block; }
+  #playerMenu .menuRow{ display:flex; gap:12px; align-items:center; margin:4px 0; }
+  #playerMenu .label{ color:var(--muted); font-size:11px; }
+  #playerMenu .value{ color:var(--accent); font-weight:600; }
+  #playerMenu .buttons{ display:flex; gap:8px; margin-top:8px; flex-direction:column; }
+  #playerMenu button{ padding:8px 12px; background:var(--btn); border:1px solid var(--accent);
+                      border-radius:8px; color:var(--fg); font-size:12px; cursor:pointer; 
+                      display:flex; justify-content:space-between; align-items:center; }
+  #playerMenu button:disabled{ opacity:0.4; cursor:not-allowed; }
+  #playerMenu button .cost{ color:var(--ap); font-size:10px; margin-left:8px; }
+
+  @media (orientation:landscape){
+    #wrap{ flex-direction:column; }
+    #controls{ grid-template-columns:repeat(6,1fr); }
+  }
+  
+  /* Level Clear and Levelup UI */
+  #levelClearOverlay{ position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+                      background:rgba(5,8,12,.8); z-index:50; cursor:pointer; }
+  #levelClearOverlay.show{ display:flex; }
+  #levelClearText{ font-size:48px; font-weight:bold; color:var(--accent2); 
+                   text-shadow:0 0 20px rgba(160,255,135,0.5); animation:pulse 1s ease-in-out infinite; }
+  
+  #levelupOverlay{ position:absolute; inset:0; display:none; background:rgba(5,8,12,.9); z-index:45; 
+                   padding:20px; overflow-y:auto; }
+  #levelupOverlay.show{ display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  #levelupContent{ width:100%; max-width:400px; }
+  
+  .upgrade-section{ margin:20px 0; }
+  .upgrade-btn{ width:100%; padding:12px; margin:8px 0; background:var(--btn); 
+                border:1px solid rgba(100,210,255,.3); border-radius:10px;
+                color:var(--fg); font-size:14px; font-weight:600; cursor:pointer;
+                display:flex; justify-content:space-between; align-items:center; }
+  .upgrade-btn:active{ background:var(--btnActive); transform:translateY(1px); }
+  .upgrade-btn:disabled{ opacity:0.4; cursor:not-allowed; }
+  .upgrade-btn .cost{ color:var(--accent2); font-size:12px; }
+  
+  #levelupFooter{ margin-top:20px; text-align:center; }
+  #levelupFooter h2{ color:var(--accent2); font-size:20px; margin:0 0 10px; }
+  #spDisplay{ font-size:18px; color:var(--accent); margin-bottom:15px; }
+  
+  #nextFloorBtn{ width:100%; padding:12px 20px; margin-top:10px;
+                 background:var(--accent); color:#000; border:none; border-radius:10px;
+                 font-weight:bold; font-size:14px; cursor:pointer; }
+  #nextFloorBtn:active{ transform:translateY(1px); }
+  
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.7;} }
+</style>
+</head>
+<body>
+<div id="wrap" data-contrast="normal" data-fontscale="normal">
+  <header>
+    <div class="title">ALIEN ROGUE</div>
+    <div class="badges" id="unlockBadges">
+      <span class="badge" data-badge="pistol">Pistol</span>
+      <span class="badge" data-badge="cqc">CQC</span>
+      <span class="badge locked" data-badge="shotgun">Shotgun</span>
+      <span class="badge locked" data-badge="lmg">LMG</span>
+      <span class="badge locked" data-badge="sniper">Sniper</span>
+      <!-- Level Clear and Levelup -->
+      <div id="levelClearOverlay">
+        <div id="levelClearText">LEVEL CLEAR!</div>
+      </div>
+      
+      <div id="levelupOverlay">
+        <div id="levelupContent">
+          <div class="upgrade-section">
+            <button class="upgrade-btn" id="btnUpgradeHP">
+              <span>HP 상승 (+1)</span>
+              <span class="cost">1 SP</span>
+            </button>
+            <button class="upgrade-btn" id="btnUpgradeAmmo">
+              <span>탄창 증가 (+1)</span>
+              <span class="cost">2 SP</span>
+            </button>
+            <button class="upgrade-btn" id="btnUpgradeAP">
+              <span>AP 상승 (+1)</span>
+              <span class="cost">4 SP</span>
+            </button>
+            <button class="upgrade-btn" id="btnBuyMedkit">
+              <span>메디킷 구매 (+1)</span>
+              <span class="cost">2 SP</span>
+            </button>
+          </div>
+          
+          <div id="levelupFooter">
+            <h2>레벨업!</h2>
+            <div id="spDisplay">남은 SP: <span id="spAmount">0</span></div>
+            <button id="nextFloorBtn">다음 층으로 이동 →</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </header>
+  <div id="gameArea">
+    <div id="canvasWrap">
+      <canvas id="game" width="720" height="1280"></canvas>
+      <div id="hud">
+        <div class="hudCard">
+          <div class="row">
+            <div class="stat hp"><span class="dot"></span><span id="hpText">HP 0/0</span></div>
+            <div class="stat ammo"><span class="dot"></span><span id="ammoText">AMMO 0/0</span></div>
+            <div class="stat ap"><span class="dot"></span><span id="apText">AP 0</span></div>
+            <div class="stat mini" id="floorText">F1</div>
+            <div class="stat mini" style="color:var(--ok)">💊<span id="medText">0</span></div>
+          </div>
+        </div>
+      </div>
+      <div id="combatLogWrapper">
+        <div id="combatLogBar">
+          <span class="logText" id="lastLog">게임 시작 대기중...</span>
+          <button class="toggleBtn" id="btnToggleLog">▼</button>
+        </div>
+        <div id="combatLogFull"></div>
+      </div>
+      <div id="controls">
+        <button class="btn" id="btnMove">이동</button>
+        <button class="btn" id="btnShoot">사격</button>
+        <button class="btn" id="btnSkill">스킬</button>
+        <button class="btn" id="btnCover">엄폐</button>
+        <button class="btn" id="btnReload">재장전</button>
+      </div>
+      <div id="targetInfo">
+        <div class="targetRow"><span class="label">대상:</span><span class="value" id="targetType">-</span></div>
+        <div class="targetRow"><span class="label">거리:</span><span class="value" id="targetRange">-</span></div>
+        <div class="targetRow"><span class="label">명중률:</span><span class="value" id="targetHit">-</span></div>
+        <div class="targetRow"><span class="label">치명타:</span><span class="value" id="targetCrit">-</span></div>
+        <div class="buttons">
+          <button id="btnConfirmAttack">공격</button>
+          <button id="btnCancelTarget">취소</button>
+        </div>
+      </div>
+
+      <!-- PANELS -->
+      <div id="titleOverlay" class="overlay show">
+        <div class="panel">
+          <h2>Alien Rogue</h2>
+          <p class="muted">아포칼립스 SF 로그라이크. 권총/근접으로 시작하고, 하이스코어로 더 강한 클래스가 해금됩니다.</p>
+          <div class="grid" style="margin:10px 0 12px;">
+            <button class="btn" id="btnStartPistol">권총(Pistol)로 시작</button>
+            <button class="btn" id="btnStartCQC">CQC(근접)로 시작</button>
+            <button class="btn" id="btnTutorial">튜토리얼</button>
+            <button class="btn" id="btnOptions">옵션</button>
+          </div>
+          <div class="kv"><div>하이스코어</div><strong id="hiscoreText">0</strong></div>
+          <div style="margin-top:8px;" class="muted">해금 조건 — 500: 샷건 / 1,200: 기관총 / 2,000: 스나이퍼</div>
+        </div>
+      </div>
+
+      <div id="tutorialOverlay" class="overlay">
+        <div class="panel">
+          <h2>튜토리얼</h2>
+          <p class="muted">
+            • 이동/사격 버튼을 누르고 맵을 터치하여 행동<br/>
+            • 적을 터치하면 공격 정보가 표시됩니다<br/>
+            • AP 2점으로 이동/사격/엄폐/재장전/스킬을 조합하세요<br/>
+            • 엄폐(반/완전)는 명중률에 큰 영향을 줍니다
+          </p>
+          <div class="grid">
+            <button class="btn" id="btnTutorialClose">확인</button>
+            <button class="btn" id="btnTutorialPlay">튜토리얼 플레이</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="optionsOverlay" class="overlay">
+        <div class="panel">
+          <h2>옵션</h2>
+          <div class="grid">
+            <button class="btn" id="btnContrast">고대비 토글</button>
+            <button class="btn" id="btnFont">큰 글꼴 토글</button>
+            <button class="btn" id="btnVibrate">진동 테스트</button>
+            <button class="btn" id="btnReset">해금/점수 초기화</button>
+          </div>
+          <div class="grid" style="margin-top:8px;">
+            <button class="btn" id="btnCloseOptions">닫기</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="gameoverOverlay" class="overlay">
+        <div class="panel">
+          <h2>결과</h2>
+          <div class="kv"><div>점수</div><strong id="scoreText">0</strong></div>
+          <div class="kv"><div>누적 하이스코어</div><strong id="hiscoreText2">0</strong></div>
+          <div id="unlockText" class="muted" style="margin:8px 0;">–</div>
+          <div class="grid">
+            <button class="btn" id="btnRestart">다시 시작</button>
+            <button class="btn" id="btnBackTitle">타이틀로</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script>
+/**
+ * v1.0.7 — 터치 이벤트 수정, 전투 로그 시스템, 타겟팅 시스템 추가
+ */
+(function(){
+  'use strict';
+  const Game = {}; window.Game = Game;
+
+  // Combat log system - Updated for compact view
+  const combatLogFull = document.getElementById('combatLogFull');
+  const lastLogText = document.getElementById('lastLog');
+  let logExpanded = false;
+  
+  function addLog(msg, type='normal'){ 
+    // Update single line display
+    if(lastLogText) {
+      lastLogText.textContent = msg;
+      lastLogText.className = 'logText ' + type;
+    }
+    
+    // Add to full log
+    if(combatLogFull) {
+      const entry = document.createElement('div');
+      entry.className = 'entry ' + type;
+      entry.textContent = msg;
+      combatLogFull.insertBefore(entry, combatLogFull.firstChild);
+      while(combatLogFull.children.length > 20) combatLogFull.removeChild(combatLogFull.lastChild);
+    }
+  }
+  
+  // Toggle log button
+  const btnToggleLog = document.getElementById('btnToggleLog');
+  if(btnToggleLog) {
+    btnToggleLog.onclick = () => {
+      logExpanded = !logExpanded;
+      if(combatLogFull) combatLogFull.classList.toggle('show', logExpanded);
+      if(btnToggleLog) btnToggleLog.textContent = logExpanded ? '▲' : '▼';
+    };
+  }
+
+  Game.Config = {
+    VERSION:'1.0.8', TILE:32, MAP_W:24, MAP_H:36, VIEW_SCALE_MIN:0.9, DPR_LIMIT:2.0,
+    FOV_RANGE:9, BASE_HIT:70, COVER_HALF:-20, COVER_FULL:-40, DIST_FALLOFF:-3,
+    CRIT_BASE:10, TURN_AP:2, FLOOR_START_HP:12, VIBRATE:true,
+    SCORE:{KILL:50,ROOM:120,SPEED:50,NOHIT:150},
+    UNLOCK:{SHOTGUN:500,LMG:1200,SNIPER:2000},
+    SP_PER_FLOOR:2, // Skill points per floor clear
+    COLORS:{ wall:'#1a2331', floor:'#0f1622', half:'#122033', full:'#0f1f2e',
+             player:'#64d2ff', enemy:'#ff6b6b', bullet:'#a0ff87', text:'#e6f1ff',
+             range:'rgba(100,210,255,0.2)', target:'#ffd166' },
+    RNG_SEED: Date.now() & 0xffffffff
+  };
+
+  Game.Save = {
+    get k(){ return {hiscore:'alienRL.hiscore', unlock:'alienRL.unlocks', options:'alienRL.options', save:'alienRL.save'}; },
+    _read(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+    _write(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+    getHi(){ return this._read(this.k.hiscore,0); },
+    setHi(v){ this._write(this.k.hiscore, Math.max(0,v|0)); },
+    getUnlock(){ return this._read(this.k.unlock,{shotgun:false,lmg:false,sniper:false}); },
+    setUnlock(u){ this._write(this.k.unlock,u); },
+    getOptions(){ return this._read(this.k.options,{contrast:false,fontLarge:false,vibrate:true}); },
+    setOptions(o){ this._write(this.k.options,o); },
+    clearAll(){ Object.values(this.k).forEach(k=>localStorage.removeItem(k)); }
+  };
+
+  // renderer
+  Game.canvas = document.getElementById('game');
+  Game.ctx = Game.canvas.getContext('2d');
+  let DPR = Math.min(window.devicePixelRatio||1, Game.Config.DPR_LIMIT);
+  
+  function resize(){ 
+    const wrap = document.getElementById('canvasWrap');
+    if(!wrap) return;
+    
+    // Get viewport dimensions
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    
+    // Calculate used height by other elements
+    const header = document.querySelector('header');
+    const hud = document.getElementById('hud');
+    const logWrapper = document.getElementById('combatLogWrapper');
+    const controls = document.getElementById('controls');
+    
+    let usedHeight = 0;
+    if(header) usedHeight += header.offsetHeight || 40;
+    if(hud) usedHeight += hud.offsetHeight || 32;
+    if(logWrapper) usedHeight += logWrapper.offsetHeight || 32;
+    if(controls) usedHeight += controls.offsetHeight || 48;
+    
+    // Add some padding
+    usedHeight += 16;
+    
+    // Set canvas wrapper to fill remaining space
+    const availableHeight = Math.max(200, vh - usedHeight);
+    wrap.style.height = availableHeight + 'px';
+    wrap.style.width = '100%';
+    
+    // Update canvas size
+    const w = wrap.clientWidth || vw;
+    const h = wrap.clientHeight || availableHeight;
+    
+    DPR = Math.min(window.devicePixelRatio || 1, Game.Config.DPR_LIMIT);
+    Game.canvas.width = Math.floor(w * DPR); 
+    Game.canvas.height = Math.floor(h * DPR); 
+    Game.ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    
+    // Force render after resize
+    if(Game.State && Game.State.render) {
+      Game.State.render();
+    }
+  } 
+  window.addEventListener('resize',resize); 
+  resize();
+
+  // rng
+  Game.RNG=(function(){ let seed=Game.Config.RNG_SEED>>>0; return{
+    seed(v){ seed=(v>>>0)||1; },
+    next(){ let x=seed; x^=x<<13; x>>>=0; x^=x>>17; x>>>=0; x^=x<<5; x>>>=0; seed=x>>>0; return (seed/0xffffffff); },
+    irange(a,b){ return a + ((b-a+1)*this.next()|0); },
+    pick(a){ return a[(a.length*this.next())|0]; },
+    chance(p){ return this.next()*100 < p; }
+  };})();
+
+  // world
+  Game.World=(function(){ const T={WALL:1,FLOOR:0,HALF:2,FULL:3}; let map=[],seen=[],w=Game.Config.MAP_W,h=Game.Config.MAP_H;
+    function idx(x,y){ return y*w+x;} function inb(x,y){return x>=0&&y>=0&&x<w&&y<h;}
+    function gen(seed){ Game.RNG.seed(seed||Game.Config.RNG_SEED); w=Game.Config.MAP_W; h=Game.Config.MAP_H; map=new Array(w*h).fill(T.WALL); seen=new Array(w*h).fill(0);
+      let x=w>>1,y=h>>1; map[idx(x,y)]=T.FLOOR; let steps=w*h*3;
+      while(steps--){ const d=Game.RNG.pick([[1,0],[-1,0],[0,1],[0,-1]]);
+        x=Math.max(1,Math.min(w-2,x+d[0])); y=Math.max(1,Math.min(h-2,y+d[1])); map[idx(x,y)]=T.FLOOR;
+        if(Game.RNG.chance(20)){ map[idx(Math.min(w-2,x+1),y)]=T.FLOOR; map[idx(x,Math.min(h-2,y+1))]=T.FLOOR; } }
+      for(let i=0;i<w*h;i++) if(map[i]===T.FLOOR && Game.RNG.chance(6)) map[i]=Game.RNG.chance(60)?T.HALF:T.FULL;
+      return {map,w,h}; }
+    function los(x0,y0,x1,y1){ let dx=Math.abs(x1-x0),sx=x0<x1?1:-1; let dy=-Math.abs(y1-y0),sy=y0<y1?1:-1; let err=dx+dy,e2; let x=x0,y=y0;
+      while(true){ if(!(x===x0&&y===y0)){ const t=map[idx(x,y)]; if(t===T.WALL||t===T.FULL) return false; } if(x===x1&&y===y1) break;
+        e2=2*err; if(e2>=dy){ err+=dy; x+=sx;} if(e2<=dx){ err+=dx; y+=sy;} } return true; }
+    function fov(cx,cy,r){ const vis=[]; for(let y=cy-r;y<=cy+r;y++) for(let x=cx-r;x<=cx+r;x++){ if(!inb(x,y)) continue; const d=(x-cx)*(x-cx)+(y-cy)*(y-cy);
+        if(d>r*r) continue; if(los(cx,cy,x,y)){ vis.push([x,y]); seen[idx(x,y)]=1; } } return vis; }
+    return {T,gen,idx,inb,los,fov,data:()=>({map,w,h}),seen:()=>seen};
+  })();
+
+  // entities
+  Game.Entities=(function(){ const list=[]; let player=null; let enemies=[];
+    function getWeapon(cls){ switch(cls){ 
+      case'pistol':return{name:'Pistol',acc:70,crit:12,dmg:[2,4],range:6,mag:8,reload:1,spread:1,pen:0}; 
+      case'cqc':return{name:'Blade',acc:85,crit:20,dmg:[4,6],range:1,mag:0,reload:0,spread:0,pen:1,melee:true}; 
+      case'shotgun':return{name:'Shotgun',acc:65,crit:20,dmg:[4,7],range:3,mag:3,reload:2,spread:2,pen:1}; 
+      case'lmg':return{name:'LMG',acc:60,crit:12,dmg:[2,4],range:7,mag:25,reload:2,spread:1,pen:0}; 
+      case'sniper':return{name:'Sniper',acc:75,crit:30,dmg:[5,8],range:9,mag:4,reload:2,spread:1,pen:2}; 
+      default:return{name:'Unknown',acc:50,crit:5,dmg:[1,2],range:3,mag:5,reload:2,spread:1,pen:0}; 
+    }}
+    function makePlayer(x,y,cls){ 
+      const w=getWeapon(cls); 
+      return {
+        kind:'player',x,y,
+        hp:Game.Config.FLOOR_START_HP,
+        hpMax:Game.Config.FLOOR_START_HP,
+        baseAP:Game.Config.TURN_AP, // Base AP before upgrades
+        bonusAP:0, // Bonus AP from upgrades
+        ap:Game.Config.TURN_AP,
+        cls,ammo:w.mag,
+        magMax:w.mag,
+        baseMag:w.mag, // Base magazine size
+        bonusMag:0, // Bonus from upgrades
+        reload:w.reload,weapon:w,
+        score:0,floor:1,alive:true,
+        inv:{grenade:0,med:2},
+        sp:0 // Skill points
+      }; 
+    }
+    function makeEnemy(x,y,t){ const b={kind:'enemy',x,y,alive:true,ap:2}; switch(t){ 
+      case'scout':return Object.assign(b,{type:t,hp:2,acc:50,dodge:5,dmg:[1,2],range:3}); 
+      case'grunt':return Object.assign(b,{type:t,hp:4,acc:55,dodge:0,dmg:[1,3],range:3}); 
+      case'spitter':return Object.assign(b,{type:t,hp:3,acc:45,dodge:0,dmg:[1,2],range:4}); 
+      case'tank':return Object.assign(b,{type:t,hp:6,acc:50,dodge:-5,dmg:[2,3],range:2,armor:1}); 
+      case'minder':return Object.assign(b,{type:t,hp:3,acc:40,dodge:10,dmg:[1,1],range:3}); 
+    }}
+    function reset(){ list.length=0; enemies.length=0; player=null; }
+    function spawnPlayer(x,y,cls){ player=makePlayer(x,y,cls); list.push(player); return player; }
+    function spawnEnemy(x,y,t){ const e=makeEnemy(x,y,t); enemies.push(e); list.push(e); return e; }
+    function isBlocked(x,y){ const {map}=Game.World.data(); if(!Game.World.inb(x,y)) return true; if(map[Game.World.idx(x,y)]===Game.World.T.WALL) return true; for(const o of list) if(o.alive&&o.x===x&&o.y===y) return true; return false; }
+    function move(ent,dx,dy){ const nx=ent.x+Math.sign(dx), ny=ent.y+Math.sign(dy); if(isBlocked(nx,ny)) return false; ent.x=nx; ent.y=ny; return true; }
+    function coverAt(x,y){ const {map}=Game.World.data(); const t=map[Game.World.idx(x,y)]; return t===Game.World.T.FULL?'full':(t===Game.World.T.HALF?'half':'none'); }
+    function hitChance(att,def,range,cover){ let h=Game.Config.BASE_HIT+(att.acc||0)-(def.dodge||0); if(range>att.range) h+=(range-att.range)*Game.Config.DIST_FALLOFF; if(cover==='half') h+=Game.Config.COVER_HALF; if(cover==='full') h+=Game.Config.COVER_FULL; return Math.max(5,Math.min(95,h|0)); }
+    function critChance(att,cover){ let c=(att.weapon?att.weapon.crit:Game.Config.CRIT_BASE); if(cover==='full') c-=8; if(cover==='half') c-=4; return Math.max(0,Math.min(80,c|0)); }
+    function attack(att,def){ 
+      const wpn=att.weapon||getWeapon(att.cls||'pistol'); 
+      const range=Math.max(Math.abs(att.x-def.x),Math.abs(att.y-def.y)); 
+      const cover=coverAt(def.x,def.y);
+      const hit=hitChance({acc:wpn.acc,range:wpn.range},def,range,cover), crit=critChance({weapon:wpn},cover);
+      const roll=(Game.RNG.next()*100)|0; let didHit=roll<hit, didCrit=false, dmg=0;
+      if(didHit){ 
+        const cr=(Game.RNG.next()*100)|0; didCrit=cr<crit; 
+        const base=Game.RNG.irange(wpn.dmg[0],wpn.dmg[1])+(didCrit?(wpn.dmg[1]>>1):0); 
+        const spread=wpn.spread?Game.RNG.irange(-wpn.spread,wpn.spread):0; 
+        const armor=def.armor||0; 
+        dmg=Math.max(0,base+spread-armor); 
+        def.hp-=dmg; 
+        if(def.hp<=0){ 
+          def.alive=false; 
+          if(def.kind==='enemy') {
+            player.score+=Game.Config.SCORE.KILL;
+            addLog(`${def.type} 처치!`, 'kill');
+          }
+        } 
+      }
+      // Combat log
+      if(att.kind==='player'){
+        if(didHit){
+          addLog(`플레이어 → ${def.type}: ${dmg}피해${didCrit?' (치명타!)':''}`, 'damage');
+        } else {
+          addLog(`플레이어 공격 빗나감!`, 'miss');
+        }
+      } else {
+        if(didHit){
+          addLog(`${att.type} → 플레이어: ${dmg}피해`, 'damage');
+        } else {
+          addLog(`${att.type} 공격 빗나감!`, 'miss');
+        }
+      }
+      if(Game.Config.VIBRATE&&navigator.vibrate) navigator.vibrate(didHit?(didCrit?60:30):10);
+      return {hit,crit,didHit,didCrit,dmg,cover,range}; 
+    }
+    function getAt(x,y){ return list.find(e=>e.alive&&e.x===x&&e.y===y); }
+    return {list,enemies,playerRef:()=>player,spawnPlayer,spawnEnemy,move,hitChance,critChance,attack,isBlocked,getWeapon,reset,coverAt,getAt};
+  })();
+
+  const $=(s)=>document.querySelector(s);
+  function setText(sel,txt){ const el=$(sel); if(el) el.textContent=txt; }
+  function show(el,flag){ el.classList.toggle('show',!!flag); }
+  function vibrate(ms){ if(Game.Save.getOptions().vibrate && navigator.vibrate) navigator.vibrate(ms); }
+
+  Game.State=(function(){ 
+    let action='move'; 
+    let vis=[];
+    let targetEnemy = null;
+    
+    function newRun(cls){
+      resize();
+      Game.Entities.reset();
+      if(combatLogFull) combatLogFull.innerHTML = '';
+      if(lastLogText) lastLogText.textContent = '게임 시작!';
+      const world=Game.World.gen();
+      let x=world.w>>1,y=world.h>>1; let guard=0;
+      while(Game.Entities.isBlocked(x,y) && guard++<500){ x=Game.RNG.irange(2,world.w-3); y=Game.RNG.irange(2,world.h-3); }
+      const pl=Game.Entities.spawnPlayer(x,y,cls);
+      spawnWave(pl.floor);
+      // Set initial AP with CQC bonus
+      const totalAP = pl.baseAP + pl.bonusAP;
+      pl.ap = cls === 'cqc' ? totalAP * 3 : totalAP;
+      action='move';
+      vis = Game.World.fov(pl.x,pl.y,Game.Config.FOV_RANGE);
+      updateHUD();
+      addLog('게임 시작!', 'normal');
+      
+      // Force resize after game starts
+      setTimeout(resize, 100);
+    }
+    
+    function spawnWave(lv){ 
+      const {map,w,h}=Game.World.data(); 
+      // Floor 1: 1-2 enemies, Floor 2: 2-3, Floor 3: 3-4, etc.
+      const minEnemies = Math.min(lv, 3);
+      const maxEnemies = Math.min(lv + 1, 6);
+      const packs = Game.RNG.irange(minEnemies, maxEnemies);
+      let tries=0;
+      let spawned = [];
+      for(let i=0;i<packs;i++){ 
+        let x,y; 
+        do{ 
+          x=Game.RNG.irange(2,w-3); 
+          y=Game.RNG.irange(2,h-3); 
+          tries++; 
+          if(tries>5000) break; 
+        }while(map[Game.World.idx(x,y)]===Game.World.T.WALL||Game.Entities.isBlocked(x,y)||Math.abs(x-Game.Entities.playerRef().x)+Math.abs(y-Game.Entities.playerRef().y)<10); 
+        // Easier enemy distribution for early floors
+        const enemyPool = lv === 1 ? ['scout','scout','grunt'] : 
+                         lv === 2 ? ['scout','grunt','grunt','spitter'] :
+                         ['scout','grunt','spitter','grunt','tank','minder'];
+        const type = Game.RNG.pick(enemyPool);
+        Game.Entities.spawnEnemy(x,y,type);
+        spawned.push(type);
+      }
+      addLog(`층 ${lv}: 에일리언 ${packs}체 출현!`, 'normal');
+    }
+    
+    function performAction(ax,ay){ 
+      const pl=Game.Entities.playerRef(); 
+      if(!pl||!pl.alive||pl.ap<=0) return;
+      
+      if(action==='move'){ 
+        if(Game.Entities.move(pl,ax-pl.x,ay-pl.y)){ 
+          pl.ap--; 
+          addLog('이동', 'normal');
+        } 
+      }
+      else if(action==='shoot'){ 
+        const target = Game.Entities.getAt(ax,ay);
+        if(target && target.kind === 'enemy'){
+          if(pl.weapon.melee){ 
+            const range = Math.max(Math.abs(target.x-pl.x),Math.abs(target.y-pl.y));
+            if(range <= 1){
+              Game.Entities.attack(pl,target); 
+              pl.ap--;
+              // Clear target if killed
+              if(!target.alive) {
+                hideTargetInfo();
+              }
+            } else {
+              addLog('너무 멀어 근접공격 불가!', 'miss');
+            }
+          } else { 
+            if(pl.ammo<=0){ 
+              addLog('탄약 없음!', 'miss');
+            } else { 
+              pl.ammo--; 
+              Game.Entities.attack(pl,target); 
+              pl.ap--; 
+              // Clear target if killed
+              if(!target.alive) {
+                hideTargetInfo();
+              }
+            } 
+          } 
+        }
+      }
+      else if(action==='cover'){ 
+        pl.ap--; 
+        addLog('엄폐 위치 조정', 'normal');
+      }
+      else if(action==='reload'){ 
+        if(!pl.weapon.melee){ 
+          pl.ammo=pl.magMax; 
+          pl.ap=Math.max(0,pl.ap-1);
+          addLog('재장전 완료!', 'heal');
+        } 
+      }
+      else if(action==='skill'){ 
+        if(pl.cls==='cqc'&&pl.hp<pl.hpMax&&pl.inv.med>0){ 
+          pl.hp=Math.min(pl.hpMax,pl.hp+3); 
+          pl.inv.med--; 
+          pl.ap--;
+          addLog('체력 회복 +3', 'heal');
+        } 
+      }
+      
+      if(pl.ap<=0){ 
+        enemyTurn(); 
+      }
+      vis=Game.World.fov(pl.x,pl.y,Game.Config.FOV_RANGE); 
+      updateHUD(); 
+    }
+    
+    function enemyTurn(){ 
+      const pl=Game.Entities.playerRef(); 
+      addLog('적 턴', 'normal');
+      for(const e of Game.Entities.enemies){ 
+        if(!e.alive) continue; 
+        // Enemies only act if they can see the player
+        const canSee = Game.World.los(e.x, e.y, pl.x, pl.y);
+        const dist = Math.max(Math.abs(e.x-pl.x),Math.abs(e.y-pl.y));
+        
+        for(let a=0;a<2;a++){ 
+          if(dist<=e.range && canSee){ 
+            // Attack only if in line of sight
+            Game.Entities.attack({
+              kind:'enemy',
+              type:e.type,
+              weapon:{acc:e.acc,crit:5,dmg:e.dmg,range:e.range,spread:1}
+            },pl); 
+            if(pl.hp<=0){ 
+              return over(); 
+            } 
+          } else if(dist > 1) { 
+            // Move toward player only if can see or was recently seen
+            const dx=Math.sign(pl.x-e.x), dy=Math.sign(pl.y-e.y); 
+            Game.Entities.move(e,dx,dy); 
+          } 
+        } 
+      } 
+      const left=Game.Entities.enemies.filter(e=>e.alive).length; 
+      if(left===0){ 
+        // Floor cleared!
+        pl.score+=Game.Config.SCORE.ROOM;
+        pl.sp += Game.Config.SP_PER_FLOOR; // Award skill points
+        showLevelClear();
+        return; // Don't spawn next wave yet
+      } 
+      // Restore AP including bonuses
+      const totalAP = pl.baseAP + pl.bonusAP;
+      pl.ap = pl.cls === 'cqc' ? totalAP * 3 : totalAP; 
+    }
+    
+    function over(){ 
+      const pl=Game.Entities.playerRef(); 
+      const score=pl.score|0; 
+      const hi=Game.Save.getHi(); 
+      const newHi=(hi|0)+score; 
+      Game.Save.setHi(newHi); 
+      const u=Game.Save.getUnlock(); 
+      let msg=''; 
+      if(newHi>=Game.Config.UNLOCK.SHOTGUN&&!u.shotgun){u.shotgun=true; msg+='샷건 해금! ';} 
+      if(newHi>=Game.Config.UNLOCK.LMG&&!u.lmg){u.lmg=true; msg+='기관총 해금! ';} 
+      if(newHi>=Game.Config.UNLOCK.SNIPER&&!u.sniper){u.sniper=true; msg+='스나이퍼 해금! ';} 
+      Game.Save.setUnlock(u);
+      setText('#scoreText',String(score)); 
+      setText('#hiscoreText2',String(newHi)); 
+      document.querySelector('#unlockText').textContent=msg||'새로운 해금 없음'; 
+      refreshBadges(); 
+      show(document.getElementById('gameoverOverlay'),true); 
+    }
+    
+    function render(){ 
+      const {map,w,h}=Game.World.data(); 
+      if(!map||!map.length){ return; } 
+      
+      const TILE=Game.Config.TILE; 
+      const canvasWidth = Game.canvas.width / DPR;
+      const canvasHeight = Game.canvas.height / DPR;
+      
+      // Calculate scale to fit the map in the canvas
+      const scaleX = canvasWidth / (w * TILE);
+      const scaleY = canvasHeight / (h * TILE);
+      const s = Math.min(scaleX, scaleY, 1.5); // Cap at 1.5x to prevent too much zoom
+      
+      // Center the map if it doesn't fill the screen
+      const offsetX = (canvasWidth - (w * TILE * s)) / 2;
+      const offsetY = (canvasHeight - (h * TILE * s)) / 2;
+      
+      Game.ctx.clearRect(0,0,Game.canvas.width,Game.canvas.height); 
+      Game.ctx.save(); 
+      Game.ctx.translate(offsetX, offsetY);
+      Game.ctx.scale(s,s);
+      
+      // Draw map
+      for(let y=0;y<h;y++) for(let x=0;x<w;x++){ 
+        const t=map[Game.World.idx(x,y)]; 
+        const v=vis.some(p=>p[0]===x&&p[1]===y);
+        Game.ctx.fillStyle=(t===1)?'#172231':(t===0)?'#0c1420':(t===2)?'#101c2c':'#0d1a28'; 
+        Game.ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+        if(v){ 
+          Game.ctx.fillStyle=(t===1)?'#1a2331':(t===0)?'#0f1622':(t===2)?'#122033':'#0f1f2e'; 
+          Game.ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+          if(t===2){ Game.ctx.strokeStyle='#1f3553'; Game.ctx.strokeRect(x*TILE+8,y*TILE+8,TILE-16,TILE-16);} 
+          if(t===3){ Game.ctx.fillStyle='#18314f'; Game.ctx.fillRect(x*TILE+6,y*TILE+6,TILE-12,TILE-12);} 
+        }
+      }
+      
+      // Draw range indicators if shooting
+      const pl=Game.Entities.playerRef();
+      if(pl && action==='shoot'){
+        Game.ctx.fillStyle = Game.Config.COLORS.range;
+        for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+          const range = Math.max(Math.abs(x-pl.x),Math.abs(y-pl.y));
+          if(range <= pl.weapon.range && Game.World.los(pl.x,pl.y,x,y)){
+            Game.ctx.fillRect(x*TILE+2,y*TILE+2,TILE-4,TILE-4);
+          }
+        }
+      }
+      
+      // Draw entities
+      if(pl) draw(pl,Game.Config.COLORS.player);
+      for(const e of Game.Entities.enemies){ 
+        if(e.alive) {
+          // Only highlight as target if still alive
+          const isTarget = targetEnemy && targetEnemy === e && e.alive;
+          draw(e, isTarget ? Game.Config.COLORS.target : Game.Config.COLORS.enemy); 
+        }
+      }
+      
+      Game.ctx.restore();
+      
+      function draw(e,color){ 
+        const v=vis.some(p=>p[0]===e.x&&p[1]===e.y); 
+        if(!v) return; 
+        Game.ctx.fillStyle=color; 
+        const r=TILE*0.35; 
+        Game.ctx.beginPath(); 
+        Game.ctx.arc(e.x*TILE+TILE/2,e.y*TILE+TILE/2,r,0,Math.PI*2); 
+        Game.ctx.fill(); 
+      }
+    }
+    
+    function updateHUD(){ 
+      const pl=Game.Entities.playerRef(); 
+      if(!pl) return; 
+      setText('#hpText',`HP ${pl.hp}/${pl.hpMax}`); 
+      setText('#ammoText',pl.weapon.melee?'MELEE':`AMMO ${pl.ammo}/${pl.magMax}`); 
+      setText('#apText',`AP ${pl.ap}`); 
+      setText('#floorText',`F${pl.floor|0}`); 
+      setText('#medText',`${pl.inv.med||0}`); 
+    }
+    
+    function showPlayerMenu(){
+      const pl = Game.Entities.playerRef();
+      if(!pl || !pl.alive) return;
+      
+      const playerHP = document.getElementById('playerHP');
+      const playerAmmo = document.getElementById('playerAmmo');
+      if(playerHP) setText('#playerHP', `${pl.hp}/${pl.hpMax}`);
+      if(playerAmmo) setText('#playerAmmo', pl.weapon.melee ? 'MELEE' : `${pl.ammo}/${pl.magMax}`);
+      
+      // Enable/disable buttons based on conditions
+      const medBtn = document.getElementById('btnUseMed');
+      const reloadBtn = document.getElementById('btnDoReload');
+      
+      if(medBtn) medBtn.disabled = pl.ap < 1 || pl.inv.med <= 0 || pl.hp >= pl.hpMax;
+      if(reloadBtn) reloadBtn.disabled = pl.ap < 1 || pl.weapon.melee || pl.ammo >= pl.magMax;
+      
+      const playerMenu = document.getElementById('playerMenu');
+      if(playerMenu) show(playerMenu, true);
+    }
+    
+    function hidePlayerMenu(){
+      const playerMenu = document.getElementById('playerMenu');
+      if(playerMenu) show(playerMenu, false);
+    }
+    
+    function showTargetInfo(enemy){
+      const pl = Game.Entities.playerRef();
+      if(!pl || !enemy || !enemy.alive) return;
+      
+      targetEnemy = enemy;
+      const range = Math.max(Math.abs(enemy.x-pl.x),Math.abs(enemy.y-pl.y));
+      const cover = Game.Entities.coverAt(enemy.x,enemy.y);
+      
+      // Check if in range
+      const inRange = range <= pl.weapon.range;
+      const hit = inRange ? Game.Entities.hitChance(
+        {acc:pl.weapon.acc,range:pl.weapon.range},
+        enemy,range,cover
+      ) : 0;
+      const crit = inRange ? Game.Entities.critChance({weapon:pl.weapon},cover) : 0;
+      
+      setText('#targetType', enemy.type.toUpperCase());
+      setText('#targetRange', `${range}칸${!inRange ? ' (사거리 밖)' : ''}`);
+      setText('#targetHit', `${hit}%`);
+      setText('#targetCrit', `${crit}%`);
+      
+      // Disable attack button if out of range
+      const btnConfirm = document.getElementById('btnConfirmAttack');
+      if(btnConfirm) btnConfirm.disabled = !inRange;
+      
+      const targetInfo = document.getElementById('targetInfo');
+      if(targetInfo) show(targetInfo, true);
+    }
+    
+    function hideTargetInfo(){
+      targetEnemy = null;
+      const targetInfo = document.getElementById('targetInfo');
+      if(targetInfo) show(targetInfo, false);
+    }
+    
+    function hideTargetInfo(){
+      targetEnemy = null;
+      show(document.getElementById('targetInfo'), false);
+    }
+    
+    function showLevelClear(){
+      const overlay = document.getElementById('levelClearOverlay');
+      if(overlay) {
+        overlay.classList.add('show');
+        addLog(`층 ${Game.Entities.playerRef().floor} 클리어! +${Game.Config.SP_PER_FLOOR} SP 획득!`, 'kill');
+      }
+    }
+    
+    function showLevelup(){
+      const pl = Game.Entities.playerRef();
+      if(!pl) return;
+      
+      const overlay = document.getElementById('levelupOverlay');
+      const spAmount = document.getElementById('spAmount');
+      
+      if(spAmount) spAmount.textContent = pl.sp;
+      
+      // Update button states
+      updateUpgradeButtons();
+      
+      if(overlay) overlay.classList.add('show');
+    }
+    
+    function updateUpgradeButtons(){
+      const pl = Game.Entities.playerRef();
+      if(!pl) return;
+      
+      const btnHP = document.getElementById('btnUpgradeHP');
+      const btnAmmo = document.getElementById('btnUpgradeAmmo');
+      const btnAP = document.getElementById('btnUpgradeAP');
+      const btnMed = document.getElementById('btnBuyMedkit');
+      
+      if(btnHP) btnHP.disabled = pl.sp < 1;
+      if(btnAmmo) btnAmmo.disabled = pl.sp < 2 || pl.weapon.melee;
+      if(btnAP) btnAP.disabled = pl.sp < 4;
+      if(btnMed) btnMed.disabled = pl.sp < 2 || pl.inv.med >= 5;
+      
+      // Update SP display
+      const spAmount = document.getElementById('spAmount');
+      if(spAmount) spAmount.textContent = pl.sp;
+    }
+    
+    function nextFloor(){
+      const pl = Game.Entities.playerRef();
+      if(!pl) return;
+      
+      // Hide levelup overlay
+      const overlay = document.getElementById('levelupOverlay');
+      if(overlay) overlay.classList.remove('show');
+      
+      // Heal 2 HP between floors
+      pl.hp = Math.min(pl.hpMax, pl.hp + 2);
+      
+      // Give medkit every 2 floors
+      if(pl.floor % 2 === 0) {
+        pl.inv.med = Math.min(5, pl.inv.med + 1);
+        addLog(`HP +2, 메디킷 +1`, 'heal');
+      } else {
+        addLog(`HP +2`, 'heal');
+      }
+      
+      // Spawn next wave
+      spawnWave(++pl.floor);
+      
+      // Restore AP with bonuses
+      const totalAP = pl.baseAP + pl.bonusAP;
+      pl.ap = pl.cls === 'cqc' ? totalAP * 3 : totalAP;
+      
+      updateHUD();
+    }
+    
+    return {newRun, render, performAction, setAction:(a)=>{action=a;}, getAction:()=>action, setVis:(v)=>{vis=v;}, 
+            showTargetInfo, hideTargetInfo, getTargetEnemy:()=>targetEnemy, showPlayerMenu, hidePlayerMenu,
+            updateHUD, enemyTurn, showLevelClear, showLevelup, updateUpgradeButtons, nextFloor};
+  })();
+
+  function refreshBadges(){ 
+    const u=Game.Save.getUnlock(); 
+    for(const [k,v] of Object.entries({shotgun:u.shotgun,lmg:u.lmg,sniper:u.sniper})){ 
+      const el=document.querySelector(`[data-badge="${k}"]`); 
+      if(el) el.classList.toggle('locked', !v); 
+    } 
+  }
+  
+  function updateHiscore(){ 
+    setText('#hiscoreText', String(Game.Save.getHi())); 
+  }
+
+  // Button handlers - with null checks
+  const btnStartPistol = document.getElementById('btnStartPistol');
+  const btnStartCQC = document.getElementById('btnStartCQC');
+  const btnTutorial = document.getElementById('btnTutorial');
+  const btnTutorialClose = document.getElementById('btnTutorialClose');
+  const btnTutorialPlay = document.getElementById('btnTutorialPlay');
+  const btnOptions = document.getElementById('btnOptions');
+  const btnCloseOptions = document.getElementById('btnCloseOptions');
+  const btnVibrate = document.getElementById('btnVibrate');
+  const btnReset = document.getElementById('btnReset');
+  const btnRestart = document.getElementById('btnRestart');
+  const btnBackTitle = document.getElementById('btnBackTitle');
+  
+  if(btnStartPistol) btnStartPistol.onclick=()=>start('pistol');
+  if(btnStartCQC) btnStartCQC.onclick=()=>start('cqc');
+  if(btnTutorial) btnTutorial.onclick=()=>show(document.getElementById('tutorialOverlay'),true);
+  if(btnTutorialClose) btnTutorialClose.onclick=()=>show(document.getElementById('tutorialOverlay'),false);
+  if(btnTutorialPlay) btnTutorialPlay.onclick=()=>{ show(document.getElementById('tutorialOverlay'),false); start('pistol'); };
+  if(btnOptions) btnOptions.onclick=()=>show(document.getElementById('optionsOverlay'),true);
+  if(btnCloseOptions) btnCloseOptions.onclick=()=>show(document.getElementById('optionsOverlay'),false);
+  if(btnVibrate) btnVibrate.onclick=()=>navigator.vibrate&&navigator.vibrate(60);
+  if(btnReset) btnReset.onclick=()=>{ if(confirm('해금/점수/옵션을 초기화할까요?')){ Game.Save.clearAll(); updateHiscore(); refreshBadges(); } };
+  if(btnRestart) btnRestart.onclick=()=>{ const overlay = document.getElementById('gameoverOverlay'); if(overlay) overlay.classList.remove('show'); start('pistol'); };
+  if(btnBackTitle) btnBackTitle.onclick=()=>{ 
+    const gameoverOverlay = document.getElementById('gameoverOverlay'); 
+    const titleOverlay = document.getElementById('titleOverlay');
+    if(gameoverOverlay) gameoverOverlay.classList.remove('show'); 
+    if(titleOverlay) titleOverlay.classList.add('show'); 
+  };
+
+  // Action buttons with active state - with null checks
+  for(const [name,id] of Object.entries({move:'btnMove',shoot:'btnShoot',skill:'btnSkill',cover:'btnCover',reload:'btnReload'})){
+    const btn = document.getElementById(id);
+    if(btn) {
+      btn.onclick=()=>{ 
+        const allBtns = document.querySelectorAll('#controls .btn');
+        if(allBtns && allBtns.length > 0) {
+          allBtns.forEach(b => {
+            if(b && b.classList) b.classList.remove('active');
+          });
+        }
+        if(btn.classList) btn.classList.add('active');
+        Game.State.setAction(name); 
+        addLog(name.toUpperCase() + ' 모드', 'normal');
+      };
+    }
+  }
+
+  // Canvas input - Fixed for mobile touch
+  const canvasEl = Game.canvas;
+  
+  function getCoords(e){
+    const rect = canvasEl.getBoundingClientRect();
+    let clientX, clientY;
+    
+    if(e.touches && e.touches.length > 0){
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if(e.changedTouches && e.changedTouches.length > 0){
+      clientX = e.changedTouches[0].clientX;
+      clientY = e.changedTouches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  }
+  
+  function handleCanvasInteraction(e){
+    e.preventDefault();
+    
+    const {map,w,h} = Game.World.data();
+    if(!map || !map.length) return;
+    
+    const coords = getCoords(e);
+    const TILE = Game.Config.TILE;
+    
+    // Calculate the same scale and offset as in render()
+    const canvasWidth = Game.canvas.width / DPR;
+    const canvasHeight = Game.canvas.height / DPR;
+    const scaleX = canvasWidth / (w * TILE);
+    const scaleY = canvasHeight / (h * TILE);
+    const s = Math.min(scaleX, scaleY, 1.5);
+    const offsetX = (canvasWidth - (w * TILE * s)) / 2;
+    const offsetY = (canvasHeight - (h * TILE * s)) / 2;
+    
+    // Convert click coordinates to tile coordinates
+    const x = Math.floor((coords.x - offsetX) / (s * TILE));
+    const y = Math.floor((coords.y - offsetY) / (s * TILE));
+    
+    // Validate coordinates
+    if(x < 0 || y < 0 || x >= w || y >= h) return;
+    
+    const pl = Game.Entities.playerRef();
+    if(!pl) return;
+    
+    // Check what was clicked
+    const target = Game.Entities.getAt(x,y);
+    
+    if(target && target.kind === 'player'){
+      // Clicked on player - show player menu
+      Game.State.hideTargetInfo();
+      Game.State.showPlayerMenu();
+    } else if(target && target.kind === 'enemy' && target.alive){
+      // Clicked on enemy - show target info
+      Game.State.hidePlayerMenu();
+      Game.State.showTargetInfo(target);
+    } else {
+      // Clicked on empty space - perform action
+      Game.State.hideTargetInfo();
+      Game.State.hidePlayerMenu();
+      Game.State.performAction(x,y);
+    }
+  }
+  
+  // Mobile touch events
+  canvasEl.addEventListener('touchend', handleCanvasInteraction, {passive:false});
+  // PC click events  
+  canvasEl.addEventListener('click', handleCanvasInteraction);
+  
+  // Target info buttons - with null checks
+  const btnConfirmAttack = document.getElementById('btnConfirmAttack');
+  const btnCancelTarget = document.getElementById('btnCancelTarget');
+  
+  if(btnConfirmAttack) {
+    btnConfirmAttack.onclick = ()=>{
+      const pl = Game.Entities.playerRef();
+      const target = Game.State.getTargetEnemy();
+      if(pl && target && target.alive){
+        const prevAction = Game.State.getAction ? Game.State.getAction() : 'shoot';
+        Game.State.setAction('shoot');
+        Game.State.performAction(target.x, target.y);
+        Game.State.hideTargetInfo();
+        // Restore previous action mode after attack
+        if(pl.ap > 0) {
+          Game.State.setAction(prevAction);
+        }
+      }
+    };
+  }
+  
+  if(btnCancelTarget) {
+    btnCancelTarget.onclick = ()=>{
+      Game.State.hideTargetInfo();
+    };
+  }
+
+  // Player menu buttons - with null checks
+  const btnUseMed = document.getElementById('btnUseMed');
+  const btnDoReload = document.getElementById('btnDoReload');
+  const btnCancelPlayer = document.getElementById('btnCancelPlayer');
+  
+  if(btnUseMed) {
+    btnUseMed.onclick = ()=>{
+      const pl = Game.Entities.playerRef();
+      if(pl && pl.ap > 0 && pl.inv.med > 0 && pl.hp < pl.hpMax){
+        pl.hp = Math.min(pl.hpMax, pl.hp + 3);
+        pl.inv.med--;
+        pl.ap--;
+        addLog('메디킷 사용! HP +3', 'heal');
+        Game.State.hidePlayerMenu();
+        Game.State.updateHUD();
+        
+        if(pl.ap <= 0){
+          Game.State.enemyTurn();
+        }
+      }
+    };
+  }
+  
+  if(btnDoReload) {
+    btnDoReload.onclick = ()=>{
+      const pl = Game.Entities.playerRef();
+      if(pl && pl.ap > 0 && !pl.weapon.melee && pl.ammo < pl.magMax){
+        pl.ammo = pl.magMax;
+        pl.ap--;
+        addLog('재장전 완료!', 'heal');
+        Game.State.hidePlayerMenu();
+        Game.State.updateHUD();
+        
+        if(pl.ap <= 0){
+          Game.State.enemyTurn();
+        }
+      }
+    };
+  }
+  
+  if(btnCancelPlayer) {
+    btnCancelPlayer.onclick = ()=>{
+      Game.State.hidePlayerMenu();
+    };
+  }
+
+  // Level clear overlay click handler
+  const levelClearOverlay = document.getElementById('levelClearOverlay');
+  if(levelClearOverlay) {
+    levelClearOverlay.onclick = () => {
+      levelClearOverlay.classList.remove('show');
+      Game.State.showLevelup();
+    };
+  }
+  
+  // Upgrade button handlers
+  const btnUpgradeHP = document.getElementById('btnUpgradeHP');
+  if(btnUpgradeHP) {
+    btnUpgradeHP.onclick = () => {
+      const pl = Game.Entities.playerRef();
+      if(pl && pl.sp >= 1) {
+        pl.sp -= 1;
+        pl.hpMax += 1;
+        pl.hp += 1; // Also heal 1 HP
+        addLog('HP 최대치 +1!', 'heal');
+        Game.State.updateUpgradeButtons();
+        Game.State.updateHUD();
+      }
+    };
+  }
+  
+  const btnUpgradeAmmo = document.getElementById('btnUpgradeAmmo');
+  if(btnUpgradeAmmo) {
+    btnUpgradeAmmo.onclick = () => {
+      const pl = Game.Entities.playerRef();
+      if(pl && pl.sp >= 2 && !pl.weapon.melee) {
+        pl.sp -= 2;
+        pl.bonusMag = (pl.bonusMag || 0) + 1;
+        pl.magMax = pl.baseMag + pl.bonusMag;
+        pl.ammo = Math.min(pl.ammo + 1, pl.magMax); // Add 1 ammo too
+        addLog('탄창 크기 +1!', 'heal');
+        Game.State.updateUpgradeButtons();
+        Game.State.updateHUD();
+      }
+    };
+  }
+  
+  const btnUpgradeAP = document.getElementById('btnUpgradeAP');
+  if(btnUpgradeAP) {
+    btnUpgradeAP.onclick = () => {
+      const pl = Game.Entities.playerRef();
+      if(pl && pl.sp >= 4) {
+        pl.sp -= 4;
+        pl.bonusAP = (pl.bonusAP || 0) + 1;
+        addLog('AP 최대치 +1!', 'heal');
+        Game.State.updateUpgradeButtons();
+        Game.State.updateHUD();
+      }
+    };
+  }
+  
+  const btnBuyMedkit = document.getElementById('btnBuyMedkit');
+  if(btnBuyMedkit) {
+    btnBuyMedkit.onclick = () => {
+      const pl = Game.Entities.playerRef();
+      if(pl && pl.sp >= 2 && pl.inv.med < 5) {
+        pl.sp -= 2;
+        pl.inv.med += 1;
+        addLog('메디킷 구매!', 'heal');
+        Game.State.updateUpgradeButtons();
+        Game.State.updateHUD();
+      }
+    };
+  }
+  
+  const nextFloorBtn = document.getElementById('nextFloorBtn');
+  if(nextFloorBtn) {
+    nextFloorBtn.onclick = () => {
+      Game.State.nextFloor();
+    };
+  }
+  
+  function start(cls){ 
+    document.querySelectorAll('.overlay').forEach(p => {
+      if(p && p.classList) p.classList.remove('show');
+    }); 
+    setTimeout(() => {
+      resize(); 
+      Game.State.newRun(cls);
+      // Set default action
+      const btnMove = document.getElementById('btnMove');
+      if(btnMove && btnMove.classList) btnMove.classList.add('active');
+      // Force another resize after everything is loaded
+      setTimeout(resize, 200);
+    }, 50);
+  }
+
+  // Game loop
+  (function loop(){ 
+    Game.State.render(); 
+    requestAnimationFrame(loop); 
+  })();
+
+  refreshBadges(); 
+  updateHiscore(); 
+  Game.State.setVis([]);
+  
+  window.addEventListener('load', ()=>{ 
+    const t = document.getElementById('titleOverlay'); 
+    if(t && t.classList && !t.classList.contains('show')) {
+      t.classList.add('show');
+    }
+    // Initial resize
+    setTimeout(resize, 100);
+  });
+  
+  // Handle orientation changes and window resizes
+  window.addEventListener('orientationchange', () => {
+    setTimeout(resize, 300);
+  });
+})();
+</script>
+</body>
+</html>
